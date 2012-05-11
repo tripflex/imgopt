@@ -27,6 +27,23 @@ usage () {
   echo
 }
 
+check_bin() {
+  # $1 is the binary
+  # $2 is the text to print if missing
+  which $1 &> /dev/null
+  if [ $? -ne 0 ]; then
+    echo -e $2
+    exit 1
+  fi
+  return 0
+}
+
+do_stats () {
+  STAT_FILE_SIZE_DIFF=$((STAT_FILE_SIZE_START-STAT_FILE_SIZE_END))
+  STAT_FILE_SIZE_DIFF_PERCENT=$((STAT_FILE_SIZE_DIFF*100/STAT_FILE_SIZE_START))
+  echo "I processed $STAT_FILE_COUNT files saving $STAT_FILE_SIZE_DIFF bytes ( $STAT_FILE_SIZE_DIFF_PERCENT % )"
+}
+
 # Optimize PNG file in place
 # (edit here to add/remove PNG optimizing steps or change parameters)
 # More information on PNG optimization techniques:
@@ -72,30 +89,53 @@ do_jpeg () {
 
 # Optimize file, only replace original if optimized version is smaller
 do_file () {
+  STAT_FILE_COUNT=$((STAT_FILE_COUNT+1))
   # $1 is name of file
   if [ -w "$1" ]; then
 
     # Copy file to tmp file and optimize in place
     cp -f "$1" $TMPF
-    case "$1" in
-      *.[Pp][Nn][Gg] )
-      do_png $TMPF
-      ;;
-      *.[Jj][Pp][Ee][Gg] )
-      do_jpeg $TMPF
-      ;;
-      *.[Jj][Pp][Gg] )
-      do_jpeg $TMPF
-      ;;
-      * )
-      echo "$1 could not be identified, please rename to .jpg or .png"
-      return 1
-      ;;
-    esac
-
+    
+    # Try mime identifying
+    mime=`file -b --mime-type $1 2>/dev/null`
+    if [ $? -eq 0 ]
+    then
+      case "$mime" in
+        image/png )
+        do_png $TMPF
+        ;;
+        image/jpeg )
+        do_jpeg $TMPF
+        ;;
+        * )
+        echo "$1 could not be identified, please verify the type!"
+        return 1
+        ;;
+      esac
+    else
+      # Fall back to file extension
+      case "$1" in
+        *.[Pp][Nn][Gg] )
+        do_png $TMPF
+        ;;
+        *.[Jj][Pp][Ee][Gg] )
+        do_jpeg $TMPF
+        ;;
+        *.[Jj][Pp][Gg] )
+        do_jpeg $TMPF
+        ;;
+        * )
+        echo "$1 could not be identified, please rename to .jpg or .png"
+        return 1
+        ;;
+      esac
+    fi
+    
     # If optimized file is smaller, copy it over original
     BEFORE=`ls -la "$1" | awk '{print $5}'`
+    STAT_FILE_SIZE_START=$((STAT_FILE_SIZE_START+BEFORE))
     AFTER=`ls -la $TMPF | awk '{print $5}'`
+    STAT_FILE_SIZE_END=$((STAT_FILE_SIZE_END+AFTER))
     let REDUCED=$BEFORE-$AFTER
     if [ $AFTER -lt $BEFORE ]; then
       cp -f $TMPF $1
@@ -116,9 +156,7 @@ do_dir () {
   # $1 is name of dir
   RETURNVAL=""
   IFS=$'\n'
-  # Doing 2 finds for compatibility with both BSD and GNU find syntax
-  # extended regex like .*\.(jpe?|pn)g$ would be better but syntax differs
-  for x in `find "$1" -type f -iregex '.*\.[jp][pn]g$' ; find "$1" -type f -iregex '.*\.jpeg$'`; do
+  for x in `find "$1" -type f -iregex '.*\.[jp][pn]g$' -o -iregex '.*\.jpeg$'`; do
     do_file $x
     if [ "$RETURNVAL" != "0" ]; then
       RETURNVAL=$?
@@ -130,6 +168,17 @@ do_dir () {
   return $RETURNVAL
 }
 
+# Global stat vars
+STAT_FILE_COUNT=0
+STAT_FILE_SIZE_START=0
+STAT_FILE_SIZE_END=0
+
+# Sanity check binaries
+check_bin advpng     "advpng, part of AdvanceCOMP, is available here:\nhttp://advancemame.sourceforge.net/comp-download.html"
+check_bin optipng    "OptiPNG is available here:\nhttp://optipng.sourceforge.net/"
+check_bin pngout     "pngout is available here (binaries only):\nhttp://www.jonof.id.au/index.php?p=kenutils"
+check_bin jpegtran   "jpegtran is part of libjpeg (almost surely already on your system).\nIf not, it's here:\n http://www.ijg.org/"
+check_bin jfifremove "jfifremove is included with this script, be sure to compile and install"
 
 # If run with args, optimize these files or recursively all files in a dir
 if [[ -n "$1" && "$1" != '-h' && "$1" != '--help' ]]; then
@@ -152,6 +201,7 @@ if [[ -n "$1" && "$1" != '-h' && "$1" != '--help' ]]; then
     shift
   done
   rm -f $TMPF
+  do_stats
   exit $RETURNVAL
 # If run without args, print usage help
 else
