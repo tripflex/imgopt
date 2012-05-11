@@ -6,6 +6,9 @@ imgopt README
 # For more information and usage examples, see:
 # http://lyncd.com/2009/03/imgopt-lossless-optimize-png-jpeg/
 
+# Author: Rob Smith
+# Version: 0.1.3 2012-05-10
+
 The included bash script imgopt uses find to recursively locate JPEG/PNG 
 files and process them with jpegtran, jfifremove, optipng, advpng and pngout, 
 using settings to losslessly minimize file size and strip all metadata headers.
